@@ -165,7 +165,7 @@ export default function AnonChat() {
   
   return (
     <Card className={cn(
-        "w-full max-w-2xl h-[90vh] md:h-[80vh] flex flex-col transition-all duration-300 shadow-2xl",
+        "w-full max-w-2xl h-[90vh] md:h-[80vh] flex flex-col transition-all duration-300 shadow-2xl overflow-hidden",
         status === 'disconnected' ? 'animate-out fade-out-0 zoom-out-95' : 'animate-in fade-in-0 zoom-in-95'
     )}>
       <CardHeader className="flex flex-row items-center justify-between p-3">
@@ -188,7 +188,7 @@ export default function AnonChat() {
         </div>
       </CardHeader>
       <Separator/>
-      <CardContent className="flex-1 p-0">
+      <CardContent className="flex-1 p-0 min-h-0">
         <ScrollArea className="h-full" ref={scrollAreaRef}>
           <div className="p-4 space-y-6">
             {messages.map((msg) => (
