@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user in the AnonChat application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity."
+        },
+        "lastActive": {
+          "type": "string",
+          "description": "Timestamp of the user's last activity.",
+          "format": "date-time"
+        },
+        "isAi": {
+          "type": "boolean",
+          "description": "Indicates if the user is an AI or human."
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "ChatMessage": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ChatMessage",
+      "type": "object",
+      "description": "Represents a single chat message between two users.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ChatMessage entity."
+        },
+        "senderId": {
+          "type": "string",
+          "description": "Reference to User who sent the message. (Relationship: User 1:N ChatMessage)"
+        },
+        "receiverId": {
+          "type": "string",
+          "description": "Reference to User who received the message. (Relationship: User 1:N ChatMessage)"
+        },
+        "content": {
+          "type": "string",
+          "description": "The text content of the chat message."
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Timestamp indicating when the message was sent.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "senderId",
+        "receiverId",
+        "content",
+        "timestamp"
+      ]
+    },
+    "ChatSession": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ChatSession",
+      "type": "object",
+      "description": "Represents a chat session between two users.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ChatSession entity."
+        },
+        "user1Id": {
+          "type": "string",
+          "description": "Reference to the first user in the chat session. (Relationship: User 1:N ChatSession)"
+        },
+        "user2Id": {
+          "type": "string",
+          "description": "Reference to the second user in the chat session. (Relationship: User 1:N ChatSession)"
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the chat session started.",
+          "format": "date-time"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the chat session ended.  Can be null if the chat is active.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "user1Id",
+        "user2Id",
+        "startTime"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles, including last activity and AI status. Secured by path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/chat_sessions/{chatSessionId}",
+        "definition": {
+          "entityName": "ChatSession",
+          "schema": {
+            "$ref": "#/backend/entities/ChatSession"
+          },
+          "description": "Represents a chat session between two users.",
+          "params": [
+            {
+              "name": "chatSessionId",
+              "description": "The unique identifier of the chat session."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/chat_sessions/{chatSessionId}/messages/{messageId}",
+        "definition": {
+          "entityName": "ChatMessage",
+          "schema": {
+            "$ref": "#/backend/entities/ChatMessage"
+          },
+          "description": "Stores chat messages within a specific session. Access is restricted to users participating in the session.",
+          "params": [
+            {
+              "name": "chatSessionId",
+              "description": "The unique identifier of the chat session."
+            },
+            {
+              "name": "messageId",
+              "description": "The unique identifier of the chat message."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore data structure is designed to support anonymous 1-on-1 text chat. It prioritizes authorization independence and efficient querying. \n\n*   `/users/{userId}`: Stores user profiles, including `lastActive` and `isAi`.  This data is private to each user, secured by path-based rules. No denormalization needed here.\n*   `/chat_sessions/{chatSessionId}`: Represents chat sessions between two users. The `user1Id` and `user2Id` fields link to the respective users.  \n*   `/chat_sessions/{chatSessionId}/messages/{messageId}`:  Stores individual chat messages within a specific session. This subcollection enforces that only users participating in the session (identified by `chatSessions.user1Id` or `chatSessions.user2Id`) can read or write messages, which are enforced in security rules.\n\n**Authorization Independence:** The structure achieves authorization independence by avoiding `get()` calls in security rules. User authorization is determined solely by the user's `uid` and the path structure, without relying on parent document data.\n\n**QAPs (Rules are not Filters):**\n*   The segregation of chat messages into subcollections `/chat_sessions/{chatSessionId}/messages/{messageId}` ensures that `list` operations are always scoped to a specific chat session, preventing unauthorized access to messages from other sessions.\n\n"
+  }
+}

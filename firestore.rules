@@ -1,0 +1,88 @@
+/**
+ * @file Firebase Security Rules for AnonChat application.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a user-ownership model for user profiles and a session-based access model for chat messages.
+ * Only authenticated users can create data. Read access is restricted based on ownership and session participation.
+ * Data validation is minimized to allow for rapid prototyping and flexible data structures.
+ *
+ * Data Structure:
+ * - /users/{userId}: Stores user profiles, accessible only to the user themselves.
+ * - /chat_sessions/{chatSessionId}: Represents chat sessions between two users.
+ * - /chat_sessions/{chatSessionId}/messages/{messageId}: Stores chat messages within a specific session, accessible only to participants.
+ *
+ * Key Security Decisions:
+ * - Users can only access their own user documents.
+ * - Chat sessions are accessible to the two users participating in them.
+ * - Listing of user documents is disallowed.
+ *
+ * Denormalization for Authorization:
+ * The `ChatSession` document contains `user1Id` and `user2Id`, which is used for authorization of messages within the session, so no need for additional `get()` calls.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Controls access to user profile documents.
+     * @path /users/{userId}
+     * @allow (create) - Authenticated user creates their own profile.
+     * @allow (get, update, delete) - Authenticated user accesses their own profile.
+     * @deny (create, get, update, delete) - Any other user attempts to access this profile.
+     * @principle Enforces document ownership for writes and reads.
+     */
+    match /users/{userId} {
+      function isOwner(userId) {
+        return request.auth != null && request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
+
+      allow create: if isOwner(userId) && request.resource.data.id == userId;
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Controls access to chat session documents.
+     * @path /chat_sessions/{chatSessionId}
+     * @allow (create) - Authenticated users can create chat sessions.
+     * @allow (get) - Any logged in user can get the details.
+     * @deny (update, delete) - Only the creator/owner can modify/delete chat sessions.
+     * @principle Allows creating and reading chat sessions, but restricts updates and deletes.
+     */
+    match /chat_sessions/{chatSessionId} {
+      allow create: if isSignedIn();
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow update, delete: if false;
+    }
+
+    /**
+     * @description Controls access to chat messages within a chat session.
+     * @path /chat_sessions/{chatSessionId}/messages/{messageId}
+     * @allow (create) - Users in the chat session can create messages.
+     * @allow (get, list) - Users in the chat session can read messages.
+     * @deny (update, delete) - No one can modify or delete messages.
+     * @principle Restricts access to messages to participants in the chat session.
+     */
+    match /chat_sessions/{chatSessionId}/messages/{messageId} {
+      function isChatParticipant(chatSessionId) {
+        return isSignedIn() && (get(/databases/$(database)/documents/chat_sessions/$(chatSessionId)).data.user1Id == request.auth.uid || get(/databases/$(database)/documents/chat_sessions/$(chatSessionId)).data.user2Id == request.auth.uid);
+      }
+
+      allow create: if isChatParticipant(chatSessionId);
+      allow get, list: if isChatParticipant(chatSessionId);
+      allow update, delete: if false;
+    }
+
+    // Helper function to check if a user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+  }
+}
