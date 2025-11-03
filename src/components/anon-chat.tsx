@@ -163,7 +163,7 @@ const findMatchOrCreateSession = async () => {
         const newSession: Omit<ChatSession, 'id'> = {
             user1Id: user.uid,
             user2Id: null,
-            startTime: serverTimestamp() as Timestamp,
+            startTime: Timestamp.now(),
             endTime: null,
             status: 'waiting',
             partnerType: 'human', // Initially waiting for a human
@@ -171,11 +171,11 @@ const findMatchOrCreateSession = async () => {
                 id: crypto.randomUUID(),
                 text: "You are now connected. You have 60 seconds to guess if you're talking to a human or an AI.",
                 sender: "system",
-                timestamp: serverTimestamp() as Timestamp,
+                timestamp: Timestamp.now(),
             }],
         };
         const sessionRef = await addDoc(collection(firestore, "chat_sessions"), newSession);
-        await addDoc(waitingPoolRef, { userId: user.uid, sessionId: sessionRef.id, status: 'waiting', createdAt: serverTimestamp() });
+        await addDoc(waitingPoolRef, { userId: user.uid, sessionId: sessionRef.id, status: 'waiting', createdAt: Timestamp.now() });
 
         setActiveSessionId(sessionRef.id);
 
@@ -211,7 +211,7 @@ const matchWithAI = async (sessionId: string) => {
       id: crypto.randomUUID(),
       text: filteredText,
       sender: user.uid,
-      timestamp: serverTimestamp() as Timestamp,
+      timestamp: Timestamp.now(),
     };
 
     const sessionRef = doc(firestore, "chat_sessions", activeSessionId);
@@ -234,7 +234,7 @@ const matchWithAI = async (sessionId: string) => {
                 id: crypto.randomUUID(),
                 text: aiResponseText,
                 sender: "ai_partner",
-                timestamp: serverTimestamp() as Timestamp,
+                timestamp: Timestamp.now(),
             };
             const finalMessages = [...updatedMessages, partnerMessage];
             await updateDocumentNonBlocking(sessionRef, { messages: finalMessages });
@@ -258,7 +258,7 @@ const matchWithAI = async (sessionId: string) => {
     setGuessResult({ correct, choice: guess, actual: partnerType });
     setGameState('result');
     if(activeSessionId) {
-        updateDocumentNonBlocking(doc(firestore, "chat_sessions", activeSessionId), { status: 'finished', endTime: serverTimestamp()});
+        updateDocumentNonBlocking(doc(firestore, "chat_sessions", activeSessionId), { status: 'finished', endTime: Timestamp.now()});
     }
   };
 
@@ -424,3 +424,5 @@ const matchWithAI = async (sessionId: string) => {
     </>
   );
 }
+
+    
