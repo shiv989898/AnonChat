@@ -139,13 +139,15 @@ const findMatchOrCreateSession = async () => {
     setGameState("searching");
 
     const waitingPoolRef = collection(firestore, "waiting_pool");
-    const q = query(waitingPoolRef, where("status", "==", "waiting"), where("userId", "!=", user.uid));
+    const q = query(waitingPoolRef, where("status", "==", "waiting"));
     
     const querySnapshot = await getDocs(q);
+    const waitingPlayers = querySnapshot.docs.filter(doc => doc.data().userId !== user.uid);
 
-    if (!querySnapshot.empty) {
+
+    if (waitingPlayers.length > 0) {
         // Human match found
-        const partnerDoc = querySnapshot.docs[0];
+        const partnerDoc = waitingPlayers[0];
         const partnerId = partnerDoc.data().userId;
         const sessionId = partnerDoc.data().sessionId;
 
