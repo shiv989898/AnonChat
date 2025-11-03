@@ -119,13 +119,19 @@ export default function AnonChat() {
             
             setMessages(finalMessages);
         }
+        if (sessionData?.status === 'active' && gameState === 'searching') {
+            setGameState('playing');
+            setTimer(60);
+            setPartnerType(sessionData.partnerType);
+            if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+        }
         if (sessionData?.status === 'guessing') {
             setGameState('guessing');
         }
     });
 
     return () => unsubscribe();
-}, [activeSessionRef, user?.uid]);
+}, [activeSessionRef, user?.uid, gameState]);
 
 
 const findMatchOrCreateSession = async () => {
@@ -150,10 +156,6 @@ const findMatchOrCreateSession = async () => {
         await batch.commit();
         
         setActiveSessionId(sessionId);
-        setPartnerType('human');
-        setGameState("playing");
-        setTimer(60);
-        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     } else {
         // No human match, create a waiting session
         const newSession: Omit<ChatSession, 'id'> = {
@@ -184,12 +186,9 @@ const matchWithAI = async (sessionId: string) => {
     if (gameState !== 'searching') return; // another user might have joined
     
     const sessionRef = doc(firestore, "chat_sessions", sessionId);
-    updateDocumentNonBlocking(sessionRef, { status: "active", partnerType: "ai", user2Id: "ai_partner" });
+    await updateDocumentNonBlocking(sessionRef, { status: "active", partnerType: "ai", user2Id: "ai_partner" });
     
     setActiveSessionId(sessionId);
-    setPartnerType('ai');
-    setGameState("playing");
-    setTimer(60);
 };
 
   const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
@@ -214,8 +213,14 @@ const matchWithAI = async (sessionId: string) => {
     };
 
     const sessionRef = doc(firestore, "chat_sessions", activeSessionId);
-    const updatedMessages = [...messages.map(m => ({...m, sender: m.sender === 'user' ? user.uid : m.sender === 'partner' ? (partnerType === 'ai' ? 'ai_partner' : 'partner') : 'system', timestamp: serverTimestamp()})), userMessage];
-    updateDocumentNonBlocking(sessionRef, { messages: updatedMessages.map(m => ({...m, sender: m.sender === 'partner' ? (messages.find(msg => msg.id === m.id)?.sender || 'partner') : m.sender})) });
+    
+    const currentSession = (await getDocs(query(collection(firestore, "chat_sessions"), where("id", "==", activeSessionId)))).docs?.[0]?.data() as ChatSession;
+    
+    const currentMessages = currentSession?.messages || messages;
+
+    const updatedMessages = [...currentMessages, userMessage];
+    
+    await updateDocumentNonBlocking(sessionRef, { messages: updatedMessages });
 
     try {
       if (partnerType === 'ai') {
@@ -230,12 +235,11 @@ const matchWithAI = async (sessionId: string) => {
                 timestamp: serverTimestamp() as Timestamp,
             };
             const finalMessages = [...updatedMessages, partnerMessage];
-            updateDocumentNonBlocking(sessionRef, { messages: finalMessages });
+            await updateDocumentNonBlocking(sessionRef, { messages: finalMessages });
         }, 1500 + Math.random() * 1000);
       }
     } catch (error) {
       console.error("Failed to send message:", error);
-      // Removed message reversal on error for optimistic UI
       toast({
         variant: "destructive",
         title: "Error",
@@ -256,13 +260,20 @@ const matchWithAI = async (sessionId: string) => {
     }
   };
 
+  const handlePlayAgain = () => {
+    resetGame();
+    findMatchOrCreateSession();
+  }
+
   const resetGame = () => {
     setGameState('idle');
     setMessages([]);
     setTimer(60);
     setGuessResult(null);
     setActiveSessionId(null);
+    setPartnerType('ai');
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
   };
 
   const renderResultDialog = () => (
@@ -278,7 +289,7 @@ const matchWithAI = async (sessionId: string) => {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogAction onClick={findMatchOrCreateSession}>Play Again</AlertDialogAction>
+          <AlertDialogAction onClick={handlePlayAgain}>Play Again</AlertDialogAction>
           <Button variant="outline" onClick={resetGame}>Main Menu</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -295,9 +306,9 @@ const matchWithAI = async (sessionId: string) => {
 
   if (gameState === "idle") {
     return (
-        <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 font-body">
+        <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 font-body overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-48 bg-primary -skew-y-6"></div>
-            <Card className="w-full max-w-md animate-in fade-in-0 zoom-in-95 shadow-2xl z-10">
+            <Card className="w-full max-w-md animate-in fade-in-0 slide-in-from-bottom-10 duration-500 ease-out shadow-2xl z-10">
                 <CardHeader className="text-center p-8">
                 <CardTitle className="font-headline text-4xl mb-2">Human or AI?</CardTitle>
                 <CardDescription>Can you tell the difference? Chat with a partner and make your guess before the time runs out.</CardDescription>
@@ -318,9 +329,9 @@ const matchWithAI = async (sessionId: string) => {
 
   if (gameState === "searching") {
     return (
-        <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 font-body">
+        <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 font-body overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-48 bg-primary -skew-y-6"></div>
-            <Card className="w-full max-w-md animate-in fade-in-0 zoom-in-95 z-10 shadow-2xl">
+            <Card className="w-full max-w-md animate-in fade-in-0 slide-in-from-bottom-10 duration-500 ease-out z-10 shadow-2xl">
                 <CardHeader className="text-center">
                 <CardTitle className="font-headline text-3xl">Finding a Partner...</CardTitle>
                 </CardHeader>
@@ -335,12 +346,13 @@ const matchWithAI = async (sessionId: string) => {
   
   return (
     <>
-    <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 font-body">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 font-body overflow-hidden">
       <div className="absolute top-0 left-0 right-0 h-48 bg-primary -skew-y-6"></div>
       {renderResultDialog()}
       <Card className={cn(
-          "w-full max-w-2xl h-[90vh] md:h-[80vh] flex flex-col transition-all duration-300 shadow-2xl overflow-hidden z-10",
-          gameState === 'result' ? 'animate-out fade-out-0 zoom-out-95' : 'animate-in fade-in-0 zoom-in-95'
+          "w-full max-w-2xl h-[90vh] md:h-[80vh] flex flex-col shadow-2xl overflow-hidden z-10",
+           "transition-all duration-500 ease-out",
+          gameState === 'result' ? 'animate-out fade-out-0 scale-95' : 'animate-in fade-in-0 scale-100 slide-in-from-bottom-10'
       )}>
         <CardHeader className="flex flex-row items-center justify-between p-3">
           <div className="flex items-center gap-3">
@@ -375,7 +387,7 @@ const matchWithAI = async (sessionId: string) => {
                    {msg.sender === 'system' ? (
                        <div className="text-xs text-muted-foreground italic text-center p-2 bg-muted/50 rounded-lg">{msg.text}</div>
                    ) : (
-                      <div className={cn("max-w-[75%] rounded-lg px-3 py-2 shadow-md", msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground')}>
+                      <div className={cn("max-w-[75%] rounded-lg px-3 py-2 shadow-md animate-in fade-in-0 zoom-in-95", msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground')}>
                           <p className="text-sm break-words">{msg.text}</p>
                           <p className={cn("text-xs mt-1", msg.sender === 'user' ? 'text-primary-foreground/70 text-right' : 'text-secondary-foreground/70 text-left')}>{typeof msg.timestamp === 'string' ? msg.timestamp : ''}</p>
                       </div>
