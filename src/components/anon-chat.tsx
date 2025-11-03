@@ -5,7 +5,6 @@ import { Loader2, Send, Users, LogOut, BrainCircuit, User as UserIcon } from "lu
 import {
   collection,
   addDoc,
-  serverTimestamp,
   query,
   where,
   getDocs,
@@ -13,6 +12,8 @@ import {
   writeBatch,
   Timestamp,
   onSnapshot,
+  getDoc,
+  updateDoc,
 } from "firebase/firestore";
 
 
@@ -175,7 +176,7 @@ const findMatchOrCreateSession = async () => {
             }],
         };
         const sessionRef = await addDoc(collection(firestore, "chat_sessions"), newSession);
-        await addDoc(waitingPoolRef, { userId: user.uid, sessionId: sessionRef.id, status: 'waiting', createdAt: Timestamp.now() });
+        await addDoc(collection(firestore, "waiting_pool"), { userId: user.uid, sessionId: sessionRef.id, status: 'waiting', createdAt: Timestamp.now() });
 
         setActiveSessionId(sessionRef.id);
 
@@ -185,12 +186,19 @@ const findMatchOrCreateSession = async () => {
 };
 
 const matchWithAI = async (sessionId: string) => {
-    if (gameState !== 'searching') return; // another user might have joined
+    // Ensure we are still searching before matching with AI
+    if (gameState !== 'searching' && activeSessionId !== sessionId) return; 
+
+    // Check if another player joined in the meantime
+    const sessionDoc = await getDoc(doc(firestore, "chat_sessions", sessionId));
+    if (sessionDoc.exists() && sessionDoc.data().user2Id) {
+        return; // A human partner already joined
+    }
     
     const sessionRef = doc(firestore, "chat_sessions", sessionId);
-    await updateDocumentNonBlocking(sessionRef, { status: "active", partnerType: "ai", user2Id: "ai_partner" });
+    await updateDoc(sessionRef, { status: "active", partnerType: "ai", user2Id: "ai_partner" });
     
-    setActiveSessionId(sessionId);
+    // The onSnapshot listener will handle the gameState change
 };
 
   const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
@@ -216,9 +224,10 @@ const matchWithAI = async (sessionId: string) => {
 
     const sessionRef = doc(firestore, "chat_sessions", activeSessionId);
     
-    const currentSession = (await getDocs(query(collection(firestore, "chat_sessions"), where("id", "==", activeSessionId)))).docs?.[0]?.data() as ChatSession;
-    
-    const currentMessages = currentSession?.messages || messages;
+    const currentMessages = messages.map(msg => {
+        if (msg.sender === 'system') return msg;
+        return { ...msg, sender: msg.sender === 'user' ? user.uid : 'partner' };
+    });
 
     const updatedMessages = [...currentMessages, userMessage];
     
@@ -424,5 +433,3 @@ const matchWithAI = async (sessionId: string) => {
     </>
   );
 }
-
-    
