@@ -1,5 +1,9 @@
-import AnonChat from '@/components/anon-chat';
 
 export default function Home() {
-  return <AnonChat />;
+  return (
+    <main>
+      <h1>Hello, World!</h1>
+      <p>If you can see this, the page is rendering.</p>
+    </main>
+  );
 }
